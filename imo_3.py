@@ -138,8 +138,8 @@ class Greedy(object):
             self.delta = delta_replace_edges_inside
             self.replace = replace_edges_inside
         self.cities = cities
-        self.moves = [self.outside_vertices_trade_first, self.inside_trade_first]
-    
+        self.moves = [self.outside_vertices_trade_first, self.inside_trade_best]
+
     def outside_vertices_trade_first(self, cities, paths):
         candidates = outside_candidates(paths)
         random.shuffle(candidates)
@@ -150,7 +150,7 @@ class Greedy(object):
                 return score_diff
         return score_diff
 
-    def inside_trade_first(self, cities, paths):
+    def inside_trade_best(self, cities, paths):
         path_order = random.sample(range(2), 2)
         for idx in path_order:
             candidates = inside_candidates(paths[idx])
@@ -160,7 +160,7 @@ class Greedy(object):
                 if score_diff < 0:
                     self.replace(paths[idx], i, j)
                     return score_diff
-        return score_diff 
+        return score_diff
     
     def __call__(self, paths):
         paths = deepcopy(paths)
@@ -179,13 +179,13 @@ class Steepest(object):
         self.variant = variant
         self.cities = cities
         if variant == "vertices":
-            self.delta = delta_replace_vertices_inside
-            self.replace = replace_vertices_inside
-        if variant == "edges":
-            self.delta = delta_replace_edges_inside
-            self.replace = replace_edges_inside
+            self.delta_vertices = delta_replace_vertices_inside
+            self.replace_vertices = replace_vertices_inside
+        elif variant == "edges":
+            self.delta_edges = delta_replace_edges_inside
+            self.replace_edges = replace_edges_inside
         self.moves = [self.outside_vertices_trade_best, self.inside_trade_best]
-    
+
     def outside_vertices_trade_best(self, cities, paths):
         candidates = outside_candidates(paths)
         scores = np.array([delta_replace_vertices_outside(cities, paths, i, j) for i, j in candidates])
@@ -193,16 +193,37 @@ class Steepest(object):
         if scores[best_result_idx] < 0:
             return replace_vertices_outside, (paths, *candidates[best_result_idx]), scores[best_result_idx]
         return None, None, scores[best_result_idx]
-            
+
     def inside_trade_best(self, cities, paths):
-        combinations = inside_candidates(paths[0]), inside_candidates(paths[1])
-        scores = np.array([[self.delta(cities, paths[idx], i, j) for i, j in combinations[idx]] for idx in range(len(paths))])
-        best_path_idx, best_combination = np.unravel_index(np.argmin(scores), scores.shape)
-        best_score = scores[best_path_idx, best_combination]
+        combinations_vertices = inside_candidates(paths[0])
+        scores_vertices = np.array([self.delta_vertices(cities, paths[0], i, j) for i, j in combinations_vertices])
+        best_score_vertices = np.min(scores_vertices)
+        
+        if self.variant == "edges":
+            combinations_edges = inside_candidates(paths[1])
+            scores_edges = np.array([self.delta_edges(cities, paths[1], i, j) for i, j in combinations_edges])
+            best_score_edges = np.min(scores_edges)
+            
+            if best_score_edges < best_score_vertices:
+                best_combination_idx = np.argmin(scores_edges)
+                best_path_idx = 1
+                best_score = best_score_edges
+            else:
+                best_combination_idx = np.argmin(scores_vertices)
+                best_path_idx = 0
+                best_score = best_score_vertices
+        else:
+            best_combination_idx = np.argmin(scores_vertices)
+            best_path_idx = 0
+            best_score = best_score_vertices
+            
         if best_score < 0:
-            return self.replace, (paths[best_path_idx], *combinations[best_path_idx][best_combination]), best_score
-        return None, None, best_score 
-    
+            if best_path_idx == 0:
+                return self.replace_vertices, (paths[best_path_idx], *combinations_vertices[best_combination_idx]), best_score
+            else:
+                return self.replace_edges, (paths[best_path_idx], *combinations_edges[best_combination_idx]), best_score
+        return None, None, best_score
+
     def __call__(self, paths):
         paths = deepcopy(paths)
         start = time.time()
@@ -214,6 +235,7 @@ class Steepest(object):
             else:
                 break
         return time.time()-start, paths
+
     
 class RandomSearch(object):
     def __init__(self, cities, time_limit):
