@@ -179,13 +179,13 @@ class Steepest(object):
         self.variant = variant
         self.cities = cities
         if variant == "vertices":
-            self.delta_vertices = delta_replace_vertices_inside
-            self.replace_vertices = replace_vertices_inside
-        elif variant == "edges":
-            self.delta_edges = delta_replace_edges_inside
-            self.replace_edges = replace_edges_inside
+            self.delta = delta_replace_vertices_inside
+            self.replace = replace_vertices_inside
+        if variant == "edges":
+            self.delta = delta_replace_edges_inside
+            self.replace = replace_edges_inside
         self.moves = [self.outside_vertices_trade_best, self.inside_trade_best]
-
+    
     def outside_vertices_trade_best(self, cities, paths):
         candidates = outside_candidates(paths)
         scores = np.array([delta_replace_vertices_outside(cities, paths, i, j) for i, j in candidates])
@@ -193,37 +193,16 @@ class Steepest(object):
         if scores[best_result_idx] < 0:
             return replace_vertices_outside, (paths, *candidates[best_result_idx]), scores[best_result_idx]
         return None, None, scores[best_result_idx]
-
+            
     def inside_trade_best(self, cities, paths):
-        combinations_vertices = inside_candidates(paths[0])
-        scores_vertices = np.array([self.delta_vertices(cities, paths[0], i, j) for i, j in combinations_vertices])
-        best_score_vertices = np.min(scores_vertices)
-        
-        if self.variant == "edges":
-            combinations_edges = inside_candidates(paths[1])
-            scores_edges = np.array([self.delta_edges(cities, paths[1], i, j) for i, j in combinations_edges])
-            best_score_edges = np.min(scores_edges)
-            
-            if best_score_edges < best_score_vertices:
-                best_combination_idx = np.argmin(scores_edges)
-                best_path_idx = 1
-                best_score = best_score_edges
-            else:
-                best_combination_idx = np.argmin(scores_vertices)
-                best_path_idx = 0
-                best_score = best_score_vertices
-        else:
-            best_combination_idx = np.argmin(scores_vertices)
-            best_path_idx = 0
-            best_score = best_score_vertices
-            
+        combinations = inside_candidates(paths[0]), inside_candidates(paths[1])
+        scores = np.array([[self.delta(cities, paths[idx], i, j) for i, j in combinations[idx]] for idx in range(len(paths))])
+        best_path_idx, best_combination = np.unravel_index(np.argmin(scores), scores.shape)
+        best_score = scores[best_path_idx, best_combination]
         if best_score < 0:
-            if best_path_idx == 0:
-                return self.replace_vertices, (paths[best_path_idx], *combinations_vertices[best_combination_idx]), best_score
-            else:
-                return self.replace_edges, (paths[best_path_idx], *combinations_edges[best_combination_idx]), best_score
-        return None, None, best_score
-
+            return self.replace, (paths[best_path_idx], *combinations[best_path_idx][best_combination]), best_score
+        return None, None, best_score 
+    
     def __call__(self, paths):
         paths = deepcopy(paths)
         start = time.time()
@@ -235,6 +214,47 @@ class Steepest(object):
             else:
                 break
         return time.time()-start, paths
+
+    def delta_replace_edges_inside(self, cities, path, i, j):
+        path_len = len(path)
+        if (i, j) == (0, len(path)-1):
+            a, b, c, d = path[i], path[(i+1)%path_len], path[(j-1)%path_len], path[j]
+        else:
+            a, b, c, d = path[(i - 1)%path_len], path[i], path[j], path[(j+1)%path_len]
+        return cities[a, c] + cities[b, d] - cities[a, b] - cities[c, d]
+
+    def generate_all_edge_exchange_moves(self, path):
+        moves = []
+        path_len = len(path)
+        for i in range(path_len):
+            for j in range(i + 2, path_len):
+                moves.append((i, j))
+        return moves
+
+    def local_search_steepest(self, cities, initial_solution):
+        current_solution = initial_solution
+        current_score = score(cities, current_solution)
+        LM = []
+
+        while True:
+            new_moves = self.generate_all_edge_exchange_moves(current_solution)
+            for move in new_moves:
+                i, j = move
+                delta_score = self.delta_replace_edges_inside(cities, current_solution, i, j)
+                if delta_score < 0:
+                    new_solution = current_solution[:]
+                    if (i, j) == (0, len(current_solution)-1):
+                        new_solution[i], new_solution[(i+1)%len(current_solution)], new_solution[(j-1)%len(current_solution)], new_solution[j] = new_solution[j], new_solution[(j-1)%len(current_solution)], new_solution[(i+1)%len(current_solution)], new_solution[i]
+                    else:
+                        new_solution[i:j+1] = reversed(new_solution[i:j+1])
+                    current_solution = new_solution
+                    current_score += delta_score
+                    break
+            else:
+                break
+
+        return current_solution, current_score
+
 
     
 class RandomSearch(object):
