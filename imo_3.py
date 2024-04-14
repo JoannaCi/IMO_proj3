@@ -119,71 +119,12 @@ def regret(args):
             tour.insert(best_index, best_city)
             unvisited.remove(best_city)
     return [tour1,tour2]
-
-def random_cycle(args):
-    cities, _ = args
-    n = cities.shape[0]
-    remaining = list(range(n))
-    random.shuffle(remaining)
-    paths = [remaining[:n//2], remaining[n//2:]]
-    return paths
-
-class Greedy(object):
-    def __init__(self, cities, variant):
-        self.variant = variant
-        if variant == "vertices":
-            self.delta = delta_replace_vertices_inside
-            self.replace = replace_vertices_inside
-        if variant == "edges":
-            self.delta = delta_replace_edges_inside
-            self.replace = replace_edges_inside
-        self.cities = cities
-        self.moves = [self.outside_vertices_trade_first, self.inside_trade_best]
-
-    def outside_vertices_trade_first(self, cities, paths):
-        candidates = outside_candidates(paths)
-        random.shuffle(candidates)
-        for i, j in candidates:
-            score_diff = delta_replace_vertices_outside(cities, paths, i, j)
-            if score_diff < 0:
-                replace_vertices_outside(paths, i, j)
-                return score_diff
-        return score_diff
-
-    def inside_trade_best(self, cities, paths):
-        path_order = random.sample(range(2), 2)
-        for idx in path_order:
-            candidates = inside_candidates(paths[idx])
-            random.shuffle(candidates)
-            for i, j in candidates:
-                score_diff = self.delta(cities, paths[idx], i, j)
-                if score_diff < 0:
-                    self.replace(paths[idx], i, j)
-                    return score_diff
-        return score_diff
-    
-    def __call__(self, paths):
-        paths = deepcopy(paths)
-        start = time.time()
-        while True:
-            move_order = random.sample(range(2), 2)
-            score = self.moves[move_order[0]](self.cities, paths)
-            if score >= 0: 
-                score = self.moves[move_order[1]](self.cities, paths)
-                if score >= 0: 
-                    break
-        return time.time()-start, paths
     
 class Steepest(object):
-    def __init__(self, cities, variant):
-        self.variant = variant
+    def __init__(self, cities):
         self.cities = cities
-        if variant == "vertices":
-            self.delta = delta_replace_vertices_inside
-            self.replace = replace_vertices_inside
-        if variant == "edges":
-            self.delta = delta_replace_edges_inside
-            self.replace = replace_edges_inside
+        self.delta = delta_replace_edges_inside
+        self.replace = replace_edges_inside
         self.moves = [self.outside_vertices_trade_best, self.inside_trade_best]
     
     def outside_vertices_trade_best(self, cities, paths):
@@ -255,45 +196,6 @@ class Steepest(object):
 
         return current_solution, current_score
 
-
-    
-class RandomSearch(object):
-    def __init__(self, cities, time_limit):
-        self.cities = cities
-        self.time_limit = time_limit
-        self.moves = [self.outside_vertices_trade, self.inside_trade_first_vertices, self.inside_trade_first_edges]
-        
-    def outside_vertices_trade(self, cities, paths):
-        candidates = outside_candidates(paths)
-        i, j = random.choice(candidates)
-        replace_vertices_outside(paths, i, j)
-
-    def inside_trade_first_vertices(self, cities, paths):
-        path_idx = random.choice([0,1])
-        candidates = inside_candidates(paths[path_idx])
-        i, j = random.choice(candidates)
-        replace_vertices_inside(paths[path_idx], i, j)
-        
-    def inside_trade_first_edges(self, cities, paths):
-        path_idx = random.choice([0,1])
-        candidates = inside_candidates(paths[path_idx])
-        i, j = random.choice(candidates)
-        replace_edges_inside(paths[path_idx], i, j)
-    
-    def __call__(self, paths):
-        best_solution = paths
-        best_score = score(self.cities, paths)
-        paths = deepcopy(paths)
-        start = time.time()
-        while time.time()-start < self.time_limit:
-            move = random.choice(self.moves)
-            move(self.cities, paths)
-            new_score = score(self.cities, paths)
-            if new_score<best_score:
-                best_solution = deepcopy(paths)
-                best_score = new_score
-        return best_solution
-
 def pairwise_distances(points):
     num_points = len(points)
     dist_matrix = np.zeros((num_points, num_points))
@@ -322,28 +224,19 @@ for file in ['kroa.csv','krob.csv']:
     coords = pd.read_csv(file, sep=' ')
     positions=np.array([coords['x'], coords['y']]).T
     cities = np.round(pairwise_distances(np.array(positions)))
-    for cycles in [random_cycle, regret]:
+    for cycles in [regret]:
         solutions = list(map(cycles, [(cities, i) for i in range(100)]))
         scores = [score(cities, x) for x in solutions]
         score_final.append(dict(file=file, function=cycles.__name__, search="none", variant="none", min=int(min(scores)), mean=int(np.mean(scores)), max=int(max(scores))))
         best = solutions[np.argmin(scores)]
         plot_optimized_tours(positions, *best, f'cycle - {cycles.__name__}')
-        for method in [Greedy(cities, "vertices"), Steepest(cities, "vertices"), Greedy(cities, "edges"), Steepest(cities, "edges")]:
+        for method in [Steepest(cities)]:
             times, new_solutions = zip(*list(map(method, solutions)))
             new_scores = [score(cities, x) for x in new_solutions]
             best = new_solutions[np.argmin(scores)]
-            plot_optimized_tours(positions, *best, f'cycle - {cycles.__name__}, neighbourhood - {method.variant}, method - {(type(method).__name__).lower()}')
+            plot_optimized_tours(positions, *best, f'cycle - {cycles.__name__}, method - {(type(method).__name__).lower()}')
             score_final.append(dict(file=file, function=cycles.__name__, search=type(method).__name__, variant=method.variant, min=int(min(new_scores)), mean=int(np.mean(new_scores)), max=int(max(new_scores))))
             time_final.append(dict(file=file, function=cycles.__name__, search=type(method).__name__,variant=method.variant, min=float(min(times)), mean=float(np.mean(times)), max=float(max(times))))
-        if cycles.__name__ == "random_sol":
-            temp_pd = pd.DataFrame(time_final)
-            time_limit = max(temp_pd[temp_pd["file"]==file]["mean"])
-            random_search = RandomSearch(cities, time_limit)
-            random_solutions = list(map(random_search, solutions))
-            random_scores = [score(cities, x) for x in random_solutions]
-            best = random_solutions[np.argmin(scores)]
-            plot_optimized_tours(positions, *best, f'cycle - {cycles.__name__}, method - {(type(random_search).__name__).lower()}')
-            score_final.append(dict(file=file, function=cycles.__name__, search=type(random_search).__name__, variant="none", min=int(min(random_scores)), mean=int(np.mean(random_scores)), max=int(max(random_scores))))
 scores_final_df = pd.DataFrame(score_final)
 times_final_df = pd.DataFrame(time_final)
 print(scores_final_df.to_string())
