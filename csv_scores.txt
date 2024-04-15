@@ -1,0 +1,9 @@
+,file,function,search,variant,min,mean,max
+0,kroa.csv,regret,none,none,32529,35061,39595
+1,kroa.csv,regret,Steepest,,31495,33458,35777
+2,kroa.csv,regret,SearchCandidates,,31643,33641,37690
+3,kroa.csv,regret,SearchMemory,,31589,33737,36950
+4,krob.csv,regret,none,none,32812,36284,38965
+5,krob.csv,regret,Steepest,,32503,34476,36851
+6,krob.csv,regret,SearchCandidates,,32476,35006,37014
+7,krob.csv,regret,SearchMemory,,32503,34744,37076
